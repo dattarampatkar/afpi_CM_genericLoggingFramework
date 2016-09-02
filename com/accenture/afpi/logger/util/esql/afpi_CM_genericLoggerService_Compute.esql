@@ -1,0 +1,102 @@
+BROKER SCHEMA com.accenture.afpi.logger.util.esql
+--PATH com.accenture.afpi.logger.util.esql;
+CREATE COMPUTE MODULE afpi_CM_genericLoggerService_Compute
+		--Must be declare UDP for it to be populated.
+	DECLARE enable				EXTERNAL BOOLEAN 	TRUE;
+	DECLARE logLevel			EXTERNAL CHARACTER 	'ERROR';
+	DECLARE expression			EXTERNAL CHARACTER 	'XX';
+	DECLARE propertyFilePath	EXTERNAL CHARACTER 	'XX';
+		
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN		
+		--CALL CopyMessageHeaders();
+		CALL CopyEntireMessage();
+		DECLARE logMessage 							CHARACTER '';
+		DECLARE prefixMsg, expressionMsg 			CHARACTER '';
+		DECLARE logTS 								TIMESTAMP CURRENT_TIMESTAMP;
+		DECLARE ret1, ret2, ret3, ret4				BOOLEAN TRUE;
+		DECLARE refProperties	 					REFERENCE TO InputRoot.Properties;
+		DECLARE CCSID_UTF8							CONSTANT INT 1208; /*1208 is for utf-8 */
+		DECLARE LOG_DELIMETER						CONSTANT CHARACTER ' | '; /* Log delimiter*/
+		
+		SET OutputLocalEnvironment = InputLocalEnvironment;
+			
+		/*
+		Environment.Variables.logging.logMessage
+		Environment.Variables.logging.currentExceptionMessage
+		Environment.Variables.logging.originalExceptionMessage
+		
+		SET OutputLocalEnvironment.Variables.tmp.udp.enable = enable;
+		SET OutputLocalEnvironment.Variables.tmp.udp.logLevel = logLevel;
+		SET OutputLocalEnvironment.Variables.tmp.udp.expression = expression;
+		SET OutputLocalEnvironment.Variables.tmp.udp.propertyFilePath = propertyFilePath;
+		*/
+			
+		SET prefixMsg = BrokerName || ' / ' || ExecutionGroupLabel || ' / ' || MessageFlowLabel;
+		SET prefixMsg = prefixMsg || ' / ' || CAST(logTS AS CHARACTER FORMAT 'yyyyMMdd-HHmmss');		
+
+		/* Developer's variable to log */		
+		IF (FIELDVALUE(Environment.Variables.logging.logMessage) IS NOT NULL) THEN					
+			CALL LogMessageFromBroker( prefixMsg || LOG_DELIMETER 
+						|| CAST( Environment.Variables.logging.logMessage AS CHARACTER), -- CCSID CCSID_UTF8),
+						logLevel, propertyFilePath) INTO ret1;
+		END IF;		
+
+		/* current ExceptionMessage */
+		IF (FIELDVALUE(Environment.Variables.logging.currentExceptionMessage) IS NOT NULL) THEN
+			CALL LogMessageFromBroker( prefixMsg || LOG_DELIMETER 
+						|| Environment.Variables.logging.currentExceptionMessage,
+						logLevel, propertyFilePath) INTO ret2;
+		END IF;	
+		
+		/* Previous or Original ExceptionMessage */
+		IF (FIELDVALUE(Environment.Variables.logging.originalExceptionMessage) IS NOT NULL) THEN
+			CALL LogMessageFromBroker( prefixMsg || LOG_DELIMETER 
+						|| Environment.Variables.logging.originalExceptionMessage,
+						logLevel, propertyFilePath) INTO ret3;
+		END IF;
+		
+		/* log expression */
+		--IF( EVAL('SET logMessage = ' || expression || ';')) THEN
+		/*
+		IF (FIELDVALUE(expression) NOT NULL) AND (expression IN ('',' ') = FALSE) THEN 
+			SET logMessage = EVAL(expression);
+			IF( logMessage NOT IN ('','XX')) THEN
+				CALL LogMessageFromBroker( prefixMsg || LOG_DELIMETER 
+							|| CAST( logMessage AS CHARACTER CCSID CCSID_UTF8),
+							logLevel, propertyFilePath) INTO ret4;
+			END IF;			
+		END IF;
+		*/
+		
+		/* Release memory of logging except originalException*/
+		SET Environment.Variables.logging.currentExceptionMessage = NULL;
+		SET Environment.Variables.logging.logMessage = NULL;
+		SET logMessage = '';
+		
+		RETURN 	ret1 AND ret2 AND ret3 AND ret4;
+	END;
+
+	CREATE PROCEDURE CopyMessageHeaders() BEGIN
+		DECLARE I INTEGER 1;
+		DECLARE J INTEGER;
+		SET J = CARDINALITY(InputRoot.*[]);
+		WHILE I < J DO
+			SET OutputRoot.*[I] = InputRoot.*[I];
+			SET I = I + 1;
+		END WHILE;
+	END;
+
+	CREATE PROCEDURE CopyEntireMessage() BEGIN
+		SET OutputRoot = InputRoot;
+	END;
+END MODULE;
+
+-------------------------------------------------------------------------------------------------------------------
+/* Procedure declaration to invoke java methods for Log4j Logging Framework */
+-------------------------------------------------------------------------------------------------------------------
+
+CREATE FUNCTION LogMessageFromBroker(IN LogMessage CHARACTER, IN LogLevel CHARACTER, IN LogPropertyPath CHARACTER)
+RETURNS BOOLEAN
+LANGUAGE JAVA
+EXTERNAL NAME "com.accenture.afpi.logging.LoggingWrapper.LogMessageFromBroker";

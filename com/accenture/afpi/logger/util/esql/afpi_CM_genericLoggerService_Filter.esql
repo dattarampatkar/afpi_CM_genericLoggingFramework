@@ -1,0 +1,17 @@
+BROKER SCHEMA com.accenture.afpi.logger.util.esql
+
+
+CREATE FILTER MODULE afpi_CM_genericLoggerService_Filter
+	DECLARE enable EXTERNAL BOOLEAN TRUE;
+	
+	CREATE FUNCTION Main() RETURNS BOOLEAN
+	BEGIN
+		IF (enable = TRUE) THEN
+			RETURN TRUE;
+		ELSE
+			RETURN FALSE;
+		END IF;	
+	END;
+END MODULE;
+
+
